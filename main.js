@@ -2,6 +2,7 @@ const synth = window.speechSynthesis;
 
 // DOM Elements
 const textInput = document.getElementById('text-input');
+const displayArea = document.getElementById('display-area'); // New display area
 const voiceSelectEn = document.getElementById('voice-select-en');
 const voiceSelectKo = document.getElementById('voice-select-ko');
 const rateInput = document.getElementById('rate');
@@ -17,6 +18,7 @@ const statusIndicator = document.getElementById('status-indicator');
 // State
 let voices = [];
 let voiceMap = new Map();
+let currentSegments = []; // Store current segments for highlighting
 
 // Initialize
 function init() {
@@ -52,15 +54,12 @@ function loadVoices() {
     });
 
     // Smart defaults
-    // Attempt to select 'Samantha' or 'Google US English' for EN
     const defaultEn = enVoices.find(v => v.name.includes('Samantha')) || enVoices.find(v => v.default) || enVoices[0];
     if (defaultEn) voiceSelectEn.value = defaultEn.name;
 
-    // Attempt to select 'Yuna' or 'Google Korean' for KO
-    const defaultKo = koVoices.find(v => v.name.includes('Yuna') || v.name.includes('Damien') || v.name.includes('Sin-ji')) || koVoices[0];
+    const defaultKo = koVoices.find(v => v.name.includes('Yuna') || v.name.includes('Damien')) || koVoices[0];
     if (defaultKo) voiceSelectKo.value = defaultKo.name;
 
-    // Fallback if no Korean voices found (e.g. some minimalist setups)
     if (koVoices.length === 0) {
         const option = document.createElement('option');
         option.textContent = "No Korean voices found";
@@ -78,15 +77,10 @@ function createOption(voice) {
 
 // Language Detection & Parsing
 function parseText(text) {
-    // Regex for Korean characters (Hangul Syllables, Jamo, Compatibility Jamo)
     const koreanRegex = /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/;
 
     const segments = [];
     let currentSegment = { text: '', type: 'unknown' };
-
-    // Simple character-by-character scan (can be optimized but safe for short texts)
-    // Heuristic: treat numbers/spaces/punctuation as "neutral" or belonging to the PREVIOUS language type
-    // to avoid chopping sentences too aggressively.
 
     for (let char of text) {
         const isKorean = koreanRegex.test(char);
@@ -96,38 +90,25 @@ function parseText(text) {
         if (isKorean) charType = 'ko';
         else if (isNeutral) charType = 'neutral';
 
-        // Initialization
         if (currentSegment.type === 'unknown') {
-            currentSegment.type = (charType === 'neutral') ? 'en' : charType; // Default start neutral to EN or KO
+            currentSegment.type = (charType === 'neutral') ? 'en' : charType;
             currentSegment.text += char;
             continue;
         }
-
-        // Logic:
-        // If current is EN, and char is KO -> switch
-        // If current is EN, and char is NEUTRAL -> stay EN
-        // If current is EN, and char is EN -> stay EN
-
-        // If current is KO, and char is KO -> stay KO
-        // If current is KO, and char is NEUTRAL -> stay KO
-        // If current is KO, and char is EN -> switch
 
         if (charType === 'neutral') {
             currentSegment.text += char;
         } else if (charType === currentSegment.type) {
             currentSegment.text += char;
         } else {
-            // Push old segment
-            if (currentSegment.text.trim().length > 0) {
+            if (currentSegment.text.length > 0) {
                 segments.push(currentSegment);
             }
-            // Start new
             currentSegment = { text: char, type: charType };
         }
     }
 
-    // Push last segment
-    if (currentSegment.text.trim().length > 0) {
+    if (currentSegment.text.length > 0) {
         segments.push(currentSegment);
     }
 
@@ -135,7 +116,7 @@ function parseText(text) {
 }
 
 // Speak Function
-async function speak() {
+function speak() {
     if (synth.speaking) {
         console.error('already speaking');
         return;
@@ -143,12 +124,14 @@ async function speak() {
 
     const text = textInput.value;
     if (text !== '') {
+        // Parse Text
+        currentSegments = parseText(text);
+
+        // Prep UI for Highlighting
+        prepareDisplayArea(currentSegments);
         setSpeakingState(true);
 
-        const segments = parseText(text);
-
-        // We queue them all up immediately. The browser handles the queue.
-        segments.forEach((segment, index) => {
+        currentSegments.forEach((segment, index) => {
             const utterance = new SpeechSynthesisUtterance(segment.text);
 
             // Assign voice
@@ -165,19 +148,58 @@ async function speak() {
             utterance.rate = rateInput.value;
             utterance.pitch = pitchInput.value;
 
-            // Simple cleanup on last item
-            if (index === segments.length - 1) {
-                utterance.onend = () => {
+            // HIGHLIGHTING LOGIC
+            // Note: boundary event is more precise for words, but for segments let's use start/end of utterance
+            utterance.onstart = () => {
+                highlightSegment(index);
+            };
+
+            utterance.onend = () => {
+                unhighlightSegment(index);
+                if (index === currentSegments.length - 1) {
                     setSpeakingState(false);
-                };
-                utterance.onerror = () => {
-                    setSpeakingState(false);
-                };
-            }
+                }
+            };
+
+            utterance.onerror = () => {
+                setSpeakingState(false);
+            };
 
             synth.speak(utterance);
         });
     }
+}
+
+function prepareDisplayArea(segments) {
+    // Hide textarea, show display div
+    textInput.classList.add('hidden');
+    displayArea.classList.remove('hidden');
+    displayArea.innerHTML = ''; // Clear
+
+    segments.forEach((seg, index) => {
+        const span = document.createElement('span');
+        span.textContent = seg.text;
+        span.id = `seg-${index}`;
+        span.classList.add('segment'); // for potential future styling
+        displayArea.appendChild(span);
+    });
+}
+
+function highlightSegment(index) {
+    // Remove previous highlights (safety)
+    document.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
+
+    // Add new
+    const el = document.getElementById(`seg-${index}`);
+    if (el) {
+        el.classList.add('highlight');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' }); // Auto-scroll
+    }
+}
+
+function unhighlightSegment(index) {
+    const el = document.getElementById(`seg-${index}`);
+    if (el) el.classList.remove('highlight');
 }
 
 // UI Helpers
@@ -192,6 +214,13 @@ function setSpeakingState(isSpeaking) {
         pauseBtn.disabled = true;
         stopBtn.disabled = true;
         playBtn.disabled = false;
+
+        // Restore Textarea
+        textInput.classList.remove('hidden');
+        displayArea.classList.add('hidden');
+
+        // Cancel everything if we force stop
+        if (synth.speaking) synth.cancel();
     }
 }
 
@@ -199,7 +228,10 @@ function setSpeakingState(isSpeaking) {
 playBtn.addEventListener('click', () => {
     if (synth.paused) {
         synth.resume();
-        setSpeakingState(true);
+        // Restore highlight state? Difficult because state is lost. 
+        // Simplest is to just resume. Highlighting might desync if paused long, 
+        // but 'onstart' events usually fire correctly for next chunks.
+        statusIndicator.classList.remove('hidden');
     } else {
         speak();
     }

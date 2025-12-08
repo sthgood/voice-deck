@@ -10,6 +10,8 @@
     --glass-bg: rgba(30, 41, 59, 0.7);
     --glass-border: rgba(255, 255, 255, 0.08);
     --font-family: 'Outfit', sans-serif;
+    --highlight-bg: rgba(99, 102, 241, 0.3);
+    --highlight-text: #ffffff;
 }
 
 * {
@@ -60,11 +62,16 @@ header p {
 .input-wrapper {
     position: relative;
     margin-bottom: 2rem;
+    height: 200px;
+    /* Fixed height for consistency */
 }
 
-textarea {
+/* Shared styles for both input and display to ensure match */
+textarea,
+.display-box {
     width: 100%;
-    height: 200px;
+    height: 100%;
+    /* Fill wrapper */
     background-color: var(--card-bg);
     border: 1px solid var(--glass-border);
     border-radius: 16px;
@@ -72,10 +79,15 @@ textarea {
     color: var(--text-primary);
     font-size: 1.25rem;
     font-family: var(--font-family);
-    resize: vertical;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    line-height: 1.5;
+}
+
+textarea {
+    resize: none;
+    /* Disable resize to maintain layout */
     outline: none;
     transition: all 0.3s ease;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
 textarea:focus {
@@ -83,9 +95,29 @@ textarea:focus {
     box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
+.display-box {
+    overflow-y: auto;
+    white-space: pre-wrap;
+    /* Preserve formatting */
+    cursor: default;
+}
+
+/* Toggle visibility */
+.hidden {
+    display: none !important;
+}
+
+.highlight {
+    background-color: var(--highlight-bg);
+    color: var(--highlight-text);
+    border-radius: 4px;
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+    transition: background-color 0.2s;
+}
+
 .char-count {
     position: absolute;
-    bottom: 1rem;
+    bottom: -1.5rem;
     right: 1.5rem;
     font-size: 0.875rem;
     color: var(--text-secondary);
@@ -283,9 +315,11 @@ input[type=range]::-webkit-slider-thumb:hover {
 }
 
 @media (max-width: 600px) {
+
+    .voice-selection-group,
     .sliders-group {
         grid-template-columns: 1fr;
-        gap: 1.5rem;
+        gap: 1rem;
     }
 
     .btn-group {
