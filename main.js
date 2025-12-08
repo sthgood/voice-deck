@@ -78,41 +78,61 @@ function createOption(voice) {
 // Language Detection & Parsing
 function parseText(text) {
     const koreanRegex = /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/;
+    const sentenceEndRegex = /[.!?\n]/;
 
     const segments = [];
     let currentSegment = { text: '', type: 'unknown' };
 
-    for (let char of text) {
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
         const isKorean = koreanRegex.test(char);
         const isNeutral = /[0-9\s\.,!?@#$%^&*()_\-+=:;"'<>\[\]{}]/.test(char);
 
+        // Determine type
         let charType = 'en';
         if (isKorean) charType = 'ko';
         else if (isNeutral) charType = 'neutral';
 
+        // Initialize if unknown
         if (currentSegment.type === 'unknown') {
-            currentSegment.type = (charType === 'neutral') ? 'en' : charType;
-            currentSegment.text += char;
-            continue;
+            currentSegment.type = (charType === 'neutral') ? 'en' : charType; // Default to current thought (usually EN or previous)
         }
 
-        if (charType === 'neutral') {
-            currentSegment.text += char;
-        } else if (charType === currentSegment.type) {
-            currentSegment.text += char;
-        } else {
-            if (currentSegment.text.length > 0) {
-                segments.push(currentSegment);
-            }
+        // Logic for splitting
+        // 1. Language Change? (Ignore neutral)
+        let typeChanged = false;
+        if (charType !== 'neutral' && charType !== currentSegment.type) {
+            typeChanged = true;
+        }
+
+        if (typeChanged) {
+            // Push previous
+            if (currentSegment.text.length > 0) segments.push(currentSegment);
             currentSegment = { text: char, type: charType };
+        } else {
+            // Same language (or neutral). Append.
+            currentSegment.text += char;
+
+            // 2. Sentence End?
+            if (sentenceEndRegex.test(char)) {
+                // If it's a newline, always split.
+                // If it's punctuation, verify it's not a decimal (not perfect but ok).
+                segments.push(currentSegment);
+                // Reset for next, default type carries over from this sentence usually, 
+                // but let's set to unknown to let next char decide, OR keep same.
+                // Resetting to unknown is safer for language detection of next sentence.
+                currentSegment = { text: '', type: 'unknown' };
+            }
         }
     }
 
+    // Push remaining
     if (currentSegment.text.length > 0) {
         segments.push(currentSegment);
     }
 
-    return segments;
+    // Filter empty segments (e.g. from multiple newlines)
+    return segments.filter(s => s.text.trim().length > 0);
 }
 
 // Speak Function
