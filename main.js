@@ -14,11 +14,14 @@ const pauseBtn = document.getElementById('pause-btn');
 const stopBtn = document.getElementById('stop-btn');
 const charCount = document.querySelector('.char-count');
 const statusIndicator = document.getElementById('status-indicator');
+const translateToggle = document.getElementById('translate-toggle'); // New Toggle
 
 // State
 let voices = [];
 let voiceMap = new Map();
+
 let currentSegments = []; // Store current segments for highlighting
+let isTranslating = false; // Flag to track translation state
 
 // Initialize
 function init() {
@@ -135,21 +138,73 @@ function parseText(text) {
     return segments.filter(s => s.text.trim().length > 0);
 }
 
+// Translation Service
+async function translateText(text) {
+    try {
+        // Using MyMemory API for demo/free translation
+        // Note: Production apps should use a paid API like Google Cloud Translation or DeepL to avoid rate limits/quality issues.
+        const encodedText = encodeURIComponent(text);
+        const response = await fetch(`https://api.mymemory.translated.net/get?q=${encodedText}&langpair=ko|en`);
+        const data = await response.json();
+
+        if (data && data.responseData) {
+            return data.responseData.translatedText;
+        }
+        throw new Error('Translation failed');
+    } catch (error) {
+        console.error('Translation Error:', error);
+        return '[Translation Failed]';
+    }
+}
+
 // Speak Function
-function speak() {
+async function speak() {
     if (synth.speaking) {
         console.error('already speaking');
         return;
     }
 
-    const text = textInput.value;
+    let text = textInput.value;
+
     if (text !== '') {
+        setSpeakingState(true); // Set state immediately
+
+        // info: Check Translation Mode
+        if (translateToggle.checked) {
+            isTranslating = true;
+            statusIndicator.innerHTML = '<span class="pulse"></span> Translating...';
+
+            try {
+                const translation = await translateText(text);
+
+                // If stopped during translation
+                if (!isTranslating) {
+                    console.log('Translation cancelled by user');
+                    return;
+                }
+
+                text = `${text}\n\n${translation}`; // Combine original + translation
+            } catch (err) {
+                console.error(err);
+                if (!isTranslating) return; // Cancelled
+            } finally {
+                isTranslating = false;
+            }
+
+            statusIndicator.innerHTML = '<span class="pulse"></span> Speaking...';
+        }
+
+        // Check if stopped/reset happened while waiting (redundant safety)
+        if (statusIndicator.classList.contains('hidden')) return;
+
         // Parse Text
         currentSegments = parseText(text);
 
         // Prep UI for Highlighting
         prepareDisplayArea(currentSegments);
-        setSpeakingState(true);
+
+        // If cancellation happened during translation
+        if (!statusIndicator.classList.contains('hidden') === false) return;
 
         currentSegments.forEach((segment, index) => {
             const utterance = new SpeechSynthesisUtterance(segment.text);
@@ -169,7 +224,6 @@ function speak() {
             utterance.pitch = pitchInput.value;
 
             // HIGHLIGHTING LOGIC
-            // Note: boundary event is more precise for words, but for segments let's use start/end of utterance
             utterance.onstart = () => {
                 highlightSegment(index);
             };
@@ -182,7 +236,9 @@ function speak() {
             };
 
             utterance.onerror = () => {
-                setSpeakingState(false);
+                console.error('Utterance error');
+                // Don't disable immediately if just one segment errors, but for simplicity:
+                if (index === currentSegments.length - 1) setSpeakingState(false);
             };
 
             synth.speak(utterance);
@@ -235,14 +291,25 @@ function setSpeakingState(isSpeaking) {
         stopBtn.disabled = true;
         playBtn.disabled = false;
 
-        // Restore Textarea
-        textInput.classList.remove('hidden');
-        displayArea.classList.add('hidden');
+        // Don't auto-revert UI here anymore. 
+        // User must click display to edit.
+        // textInput.classList.remove('hidden');
+        // displayArea.classList.add('hidden');
 
         // Cancel everything if we force stop
         if (synth.speaking) synth.cancel();
     }
 }
+
+// Click to Edit
+displayArea.addEventListener('click', () => {
+    if (!synth.speaking) {
+        textInput.classList.remove('hidden');
+        displayArea.classList.add('hidden');
+        displayArea.innerHTML = ''; // Clear content
+        textInput.focus();
+    }
+});
 
 // Event Listeners
 playBtn.addEventListener('click', () => {
@@ -276,13 +343,20 @@ pauseBtn.addEventListener('click', () => {
 });
 
 stopBtn.addEventListener('click', () => {
+    // Check if translating
+    if (isTranslating) {
+        isTranslating = false; // Flag to cancel
+        setSpeakingState(false);
+        // Explicitly hide indicator as setSpeakingState handles buttons but checking indicator class in speak()
+        statusIndicator.classList.add('hidden');
+        return;
+    }
+
     if (synth.speaking) {
         synth.cancel();
+        // setSpeakingState(false) will be called by onend/onerror, 
+        // but force it here for immediate UI feedback in case of lag
         setSpeakingState(false);
-        pauseBtn.innerHTML = `
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-            Pause
-        `;
     }
 });
 
